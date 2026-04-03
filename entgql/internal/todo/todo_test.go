@@ -141,6 +141,10 @@ type response struct {
 				Parent        struct {
 					ID string
 				}
+				Category struct {
+					ID   string
+					Text string
+				}
 			}
 			Cursor string
 		}
@@ -356,6 +360,10 @@ func (s *todoTestSuite) TestPaginationOrder() {
 						priorityOrder
 						status
 						text
+						category {
+							id
+							text
+						}
 					}
 					cursor
 				}
@@ -370,6 +378,16 @@ func (s *todoTestSuite) TestPaginationOrder() {
 		step  = 5
 		steps = maxTodos/step + 1
 	)
+
+	// Add categories to a few todos.
+	ctx := context.Background()
+	c1ID := s.ent.Todo.Query().Order(ent.Asc(todo.FieldID)).FirstIDX(ctx)
+	s.ent.Category.Create().SetText("c1").SetStatus(category.StatusEnabled).AddTodoIDs(c1ID).SetDuration(time.Second).ExecX(ctx)
+	c2ID := s.ent.Todo.Query().Where(todo.IDNEQ(c1ID)).Order(ent.Asc(todo.FieldID)).FirstIDX(ctx)
+	s.ent.Category.Create().SetText("c2").SetStatus(category.StatusEnabled).AddTodoIDs(c2ID).SetDuration(time.Second).ExecX(ctx)
+	c3ID := s.ent.Todo.Query().Where(todo.IDNotIn(c1ID, c2ID)).Order(ent.Asc(todo.FieldID)).FirstIDX(ctx)
+	s.ent.Category.Create().SetText("c3").SetStatus(category.StatusEnabled).AddTodoIDs(c3ID).SetDuration(time.Second).ExecX(ctx)
+
 	s.Run("ForwardAscending", func() {
 		var (
 			rsp     response
@@ -516,6 +534,225 @@ func (s *todoTestSuite) TestPaginationOrder() {
 				s.Require().True(startCreatedAt.Before(endCreatedAt) || startCreatedAt.Equal(endCreatedAt))
 			}
 			startCreatedAt, _ = time.Parse(time.RFC3339, start.Node.CreatedAt)
+		}
+	})
+	s.Run("ForwardAscending OrderBy Nillable Edge", func() {
+		// Expect:
+		// | null, null, null, null, null | ... null, null, c1, c2, c3
+		// |           Page 1                 |  page direction ->
+		var (
+			rsp             response
+			endCategoryText string
+			endTodoID       string
+		)
+		for i := 0; i < steps; i++ {
+			err := s.Post(query, &rsp,
+				client.Var("after", rsp.Todos.PageInfo.EndCursor),
+				client.Var("first", step),
+				client.Var("direction", "ASC"),
+				client.Var("field", "CATEGORY_TEXT"),
+			)
+			s.Require().NoError(err)
+			s.Require().Equal(maxTodos, rsp.Todos.TotalCount)
+			if i < steps-1 {
+				s.Require().Len(rsp.Todos.Edges, step)
+				s.Require().True(rsp.Todos.PageInfo.HasNextPage)
+			} else {
+				s.Require().Len(rsp.Todos.Edges, maxTodos%step)
+				s.Require().False(rsp.Todos.PageInfo.HasNextPage)
+			}
+			s.Require().True(sort.SliceIsSorted(rsp.Todos.Edges, func(i, j int) bool {
+				// Nil categories (empty text) should come first
+				if rsp.Todos.Edges[i].Node.Category.Text == "" && rsp.Todos.Edges[j].Node.Category.Text != "" {
+					return true
+				}
+				// If second node's category is nil, first node should not come first
+				if rsp.Todos.Edges[i].Node.Category.Text != "" && rsp.Todos.Edges[j].Node.Category.Text == "" {
+					return false
+				}
+				// If both have category text or both are empty, compare them
+				return rsp.Todos.Edges[i].Node.Category.Text < rsp.Todos.Edges[j].Node.Category.Text
+			}))
+			s.Require().NotNil(rsp.Todos.PageInfo.StartCursor)
+			s.Require().Equal(*rsp.Todos.PageInfo.StartCursor, rsp.Todos.Edges[0].Cursor)
+			s.Require().NotNil(rsp.Todos.PageInfo.EndCursor)
+			end := rsp.Todos.Edges[len(rsp.Todos.Edges)-1]
+			s.Require().Equal(*rsp.Todos.PageInfo.EndCursor, end.Cursor)
+			if i > 0 {
+				if end.Node.Category.Text == endCategoryText {
+					s.Require().Less(endTodoID, end.Node.ID)
+				} else {
+					s.Require().Less(endCategoryText, end.Node.Category.Text)
+				}
+			}
+			endCategoryText = end.Node.Category.Text
+			endTodoID = end.Node.ID
+		}
+	})
+	s.Run("ForwardDescending OrderBy Nillable Edge", func() {
+		// Expect:
+		// | c3, c2, c1, null, null, | ... null, null
+		// |           Page 1            |   page direction ->
+		var (
+			rsp   response
+			endID int
+		)
+		for i := 0; i < steps; i++ {
+			err := s.Post(query, &rsp,
+				client.Var("after", rsp.Todos.PageInfo.EndCursor),
+				client.Var("first", step),
+				client.Var("direction", "DESC"),
+				client.Var("field", "CATEGORY_TEXT"),
+			)
+			s.Require().NoError(err)
+			s.Require().Equal(maxTodos, rsp.Todos.TotalCount)
+			if i < steps-1 {
+				s.Require().Len(rsp.Todos.Edges, step)
+				s.Require().True(rsp.Todos.PageInfo.HasNextPage)
+			} else {
+				s.Require().Len(rsp.Todos.Edges, maxTodos%step)
+				s.Require().False(rsp.Todos.PageInfo.HasNextPage)
+			}
+			s.Require().True(sort.SliceIsSorted(rsp.Todos.Edges, func(i, j int) bool {
+				// For DESC ordering, non-null values come first
+				if rsp.Todos.Edges[i].Node.Category.Text != "" && rsp.Todos.Edges[j].Node.Category.Text == "" {
+					return true
+				}
+				// If first node's category is nil, it should come after (for DESC order)
+				if rsp.Todos.Edges[i].Node.Category.Text == "" && rsp.Todos.Edges[j].Node.Category.Text != "" {
+					return false
+				}
+				// If both have same category text (or both are empty), use ID as tiebreaker
+				if rsp.Todos.Edges[i].Node.Category.Text == rsp.Todos.Edges[j].Node.Category.Text {
+					leftID, _ := strconv.Atoi(rsp.Todos.Edges[i].Node.ID)
+					rightID, _ := strconv.Atoi(rsp.Todos.Edges[j].Node.ID)
+					return leftID < rightID
+				}
+				// Otherwise compare category texts in descending order
+				return rsp.Todos.Edges[i].Node.Category.Text > rsp.Todos.Edges[j].Node.Category.Text
+			}))
+			s.Require().NotNil(rsp.Todos.PageInfo.StartCursor)
+			s.Require().Equal(*rsp.Todos.PageInfo.StartCursor, rsp.Todos.Edges[0].Cursor)
+			s.Require().NotNil(rsp.Todos.PageInfo.EndCursor)
+			end := rsp.Todos.Edges[len(rsp.Todos.Edges)-1]
+			s.Require().Equal(*rsp.Todos.PageInfo.EndCursor, end.Cursor)
+			if i > 0 {
+				id, _ := strconv.Atoi(rsp.Todos.Edges[0].Node.ID)
+				s.Require().Less(endID, id)
+			}
+			endID, _ = strconv.Atoi(end.Node.ID)
+		}
+	})
+	s.Run("BackwardAscending OrderBy Nillable Edge", func() {
+		// Expect:
+		// null, null, null, null, null, | null, ..., null, c1, c2, c3  |
+		//     <- page direction     |                Page 1            |
+		var (
+			rsp             response
+			endCategoryText string
+			endTodoID       string
+		)
+		for i := 0; i < steps; i++ {
+			err := s.Post(query, &rsp,
+				client.Var("before", rsp.Todos.PageInfo.StartCursor),
+				client.Var("last", step),
+				client.Var("direction", "ASC"),
+				client.Var("field", "CATEGORY_TEXT"),
+			)
+			s.Require().NoError(err)
+			s.Require().Equal(maxTodos, rsp.Todos.TotalCount)
+			if i < steps-1 {
+				s.Require().Len(rsp.Todos.Edges, step)
+				s.Require().True(rsp.Todos.PageInfo.HasPreviousPage)
+			} else {
+				s.Require().Len(rsp.Todos.Edges, maxTodos%step)
+				s.Require().False(rsp.Todos.PageInfo.HasPreviousPage)
+			}
+			s.Require().True(sort.SliceIsSorted(rsp.Todos.Edges, func(i, j int) bool {
+				// Nil categories (empty text) should come first
+				if rsp.Todos.Edges[i].Node.Category.Text == "" && rsp.Todos.Edges[j].Node.Category.Text != "" {
+					return true
+				}
+				// If second node's category is nil, first node should not come first
+				if rsp.Todos.Edges[i].Node.Category.Text != "" && rsp.Todos.Edges[j].Node.Category.Text == "" {
+					return false
+				}
+				// If both have category text or both are empty, compare them
+				return rsp.Todos.Edges[i].Node.Category.Text < rsp.Todos.Edges[j].Node.Category.Text
+			}))
+			s.Require().NotNil(rsp.Todos.PageInfo.StartCursor)
+			start := rsp.Todos.Edges[0]
+			s.Require().Equal(*rsp.Todos.PageInfo.StartCursor, start.Cursor)
+			s.Require().NotNil(rsp.Todos.PageInfo.EndCursor)
+			end := rsp.Todos.Edges[len(rsp.Todos.Edges)-1]
+			s.Require().Equal(*rsp.Todos.PageInfo.EndCursor, end.Cursor)
+			if i > 0 {
+				if end.Node.Category.Text == endCategoryText {
+					s.Require().Greater(endTodoID, end.Node.ID)
+				} else {
+					s.Require().Greater(endCategoryText, end.Node.Category.Text)
+				}
+			}
+			endCategoryText = start.Node.Category.Text
+			endTodoID = start.Node.ID
+		}
+	})
+
+	s.Run("BackwardDescending OrderBy Nillable Edge", func() {
+		// Expect:
+		// c3, c2, c1, null, null, ..., | null, null, null, null, null |
+		//     <- page direction     |                Page 1            |
+		var (
+			rsp               response
+			startCategoryText string
+		)
+		for i := 0; i < steps; i++ {
+			err := s.Post(query, &rsp,
+				client.Var("before", rsp.Todos.PageInfo.StartCursor),
+				client.Var("last", step),
+				client.Var("direction", "DESC"),
+				client.Var("field", "CATEGORY_TEXT"),
+			)
+			s.Require().NoError(err)
+			s.Require().Equal(maxTodos, rsp.Todos.TotalCount)
+			if i < steps-1 {
+				s.Require().Len(rsp.Todos.Edges, step)
+				s.Require().True(rsp.Todos.PageInfo.HasPreviousPage)
+			} else {
+				s.Require().Len(rsp.Todos.Edges, maxTodos%step)
+				s.Require().False(rsp.Todos.PageInfo.HasPreviousPage)
+			}
+
+			s.Require().True(sort.SliceIsSorted(rsp.Todos.Edges, func(i, j int) bool {
+				// For DESC ordering, non-null values come first
+				if rsp.Todos.Edges[i].Node.Category.Text != "" && rsp.Todos.Edges[j].Node.Category.Text == "" {
+					return true
+				}
+				// If first node's category is nil, it should come after (for DESC order)
+				if rsp.Todos.Edges[i].Node.Category.Text == "" && rsp.Todos.Edges[j].Node.Category.Text != "" {
+					return false
+				}
+				// If both have same category text (or both are empty), use ID as tiebreaker
+				if rsp.Todos.Edges[i].Node.Category.Text == rsp.Todos.Edges[j].Node.Category.Text {
+					leftID, _ := strconv.Atoi(rsp.Todos.Edges[i].Node.ID)
+					rightID, _ := strconv.Atoi(rsp.Todos.Edges[j].Node.ID)
+					return leftID < rightID
+				}
+				// Otherwise compare category texts in descending order
+				return rsp.Todos.Edges[i].Node.Category.Text > rsp.Todos.Edges[j].Node.Category.Text
+			}))
+
+			s.Require().NotNil(rsp.Todos.PageInfo.StartCursor)
+			start := rsp.Todos.Edges[0]
+			s.Require().Equal(*rsp.Todos.PageInfo.StartCursor, start.Cursor)
+			s.Require().NotNil(rsp.Todos.PageInfo.EndCursor)
+			end := rsp.Todos.Edges[len(rsp.Todos.Edges)-1]
+			s.Require().Equal(*rsp.Todos.PageInfo.EndCursor, end.Cursor)
+			if i > 0 {
+				endCategoryText := end.Node.Category.Text
+				s.Require().GreaterOrEqual(endCategoryText, startCategoryText)
+			}
+			startCategoryText = start.Node.Category.Text
 		}
 	})
 }
@@ -3302,7 +3539,6 @@ func TestPrivateFieldSelectionForPagination(t *testing.T) {
 	rec.reset()
 	gqlc.MustPost(query2, &rsp2)
 	require.Equal(t, []string{
-		// BEFORE: "SELECT `todos`.`id`, `todos`.`text`, `todos`.`status` FROM `todos` LEFT JOIN `categories` AS `t1` ON `todos`.`category_id` = `t1`.`id` WHERE `status` < ? OR (`status` = ? AND `id` > ?) GROUP BY `todos`.`id` ORDER BY `todos`.`status` DESC, `todos`.`id` LIMIT 3",
-		"SELECT `todos`.`id`, `todos`.`text`, `todos`.`status` FROM `todos` LEFT JOIN `categories` AS `t1` ON `todos`.`category_id` = `t1`.`id` WHERE `todos`.`status` < ? OR (`todos`.`status` = ? AND `todos`.`id` > ?) GROUP BY `todos`.`id` ORDER BY `todos`.`status` DESC, `todos`.`id` LIMIT 3",
+		"SELECT `todos`.`id`, `todos`.`text`, `todos`.`status` FROM `todos` LEFT JOIN `categories` AS `t1` ON `todos`.`category_id` = `t1`.`id` WHERE `todos`.`status` IS NULL OR `todos`.`status` < ? OR (`todos`.`id` > ? AND `todos`.`status` = ?) GROUP BY `todos`.`id` ORDER BY `todos`.`status` DESC, `todos`.`id` LIMIT 3",
 	}, rec.queries)
 }

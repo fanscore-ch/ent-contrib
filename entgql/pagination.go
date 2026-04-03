@@ -197,6 +197,19 @@ func MultiCursorsPredicate[T any](after, before *Cursor[T], opts *MultiCursorsOp
 	return predicates, nil
 }
 
+// getColumnNameForField gets the column name for the specified field and considers
+// non-ambiguous matching of terms that may be joined instead of a column on the table.
+func getColumnNameForField(s *sql.Selector, field string) string {
+	// The function is executed on query generation time.
+	column := s.C(field)
+	// If there is a non-ambiguous match, we use it. That is because
+	// some order terms may append joined information to query selection.
+	if matches := s.FindSelection(field); len(matches) == 1 {
+		column = matches[0]
+	}
+	return column
+}
+
 func multiPredicate[T any](cursor *Cursor[T], opts *MultiCursorsOptions) (func(*sql.Selector), error) {
 	values, ok := cursor.Value.([]any)
 	if !ok {
@@ -218,33 +231,52 @@ func multiPredicate[T any](cursor *Cursor[T], opts *MultiCursorsOptions) (func(*
 	return func(s *sql.Selector) {
 		// Given the following terms: x DESC, y ASC, etc. The following predicate will be
 		// generated: (x < x1 OR (x = x1 AND y > y1) OR (x = x1 AND y = y1 AND id > last)).
-
-		// getColumnNameForField gets the name for the term and considers non-ambiguous matching of
-		// terms that may be joined instead of a column on the table.
-		getColumnNameForField := func(field string) string {
-			// The predicate function is executed on query generation time.
-			column := s.C(field)
-			// If there is a non-ambiguous match, we use it. That is because
-			// some order terms may append joined information to query selection.
-			if matches := s.FindSelection(field); len(matches) == 1 {
-				column = matches[0]
-			}
-			return column
-		}
-
 		var or []*sql.Predicate
 		for i := range opts.Fields {
+			value := values[i]
+			column := getColumnNameForField(s, opts.Fields[i])
+
+			// Helper function to add equality conditions for all previous fields
+			addPreviousFieldsConditions := func(predicates *[]*sql.Predicate) {
+				for j := 0; j < i; j++ {
+					prevColumn := getColumnNameForField(s, opts.Fields[j])
+					if values[j] == nil {
+						*predicates = append(*predicates, sql.IsNull(prevColumn))
+					} else {
+						*predicates = append(*predicates, sql.EQ(prevColumn, values[j]))
+					}
+				}
+			}
+
+			// Handle nil/NULL values in the cursor
+			if value == nil {
+				if opts.Directions[i] == OrderDirectionAsc {
+					// For ASC, NULL values come first, so the next page may have non-NULL values
+					or = append(or, sql.NotNull(column))
+				}
+				// For DESC, NULL values come last, no special handling needed
+				continue
+			}
+			// If the cursor value is not nil and we're sorting by DESC,
+			// we need to include NULL values in our results (as they come last in DESC order)
+			if opts.Directions[i] == OrderDirectionDesc {
+				var nullAnds []*sql.Predicate
+				nullAnds = append(nullAnds, sql.IsNull(column))
+				addPreviousFieldsConditions(&nullAnds)
+				or = append(or, sql.And(nullAnds...))
+			}
+
+			// Add standard comparison predicates for non-NULL values
 			var ands []*sql.Predicate
-			for j := 0; j < i; j++ {
-				c := getColumnNameForField(opts.Fields[j])
-				ands = append(ands, sql.EQ(c, values[j]))
-			}
-			c := getColumnNameForField(opts.Fields[i])
+			// Add condition for the current field based on its direction
 			if opts.Directions[i] == OrderDirectionAsc {
-				ands = append(ands, sql.GT(c, values[i]))
+				ands = append(ands, sql.GT(column, value))
 			} else {
-				ands = append(ands, sql.LT(c, values[i]))
+				ands = append(ands, sql.LT(column, value))
 			}
+
+			// Add equality conditions for all previous fields
+			addPreviousFieldsConditions(&ands)
 			or = append(or, sql.And(ands...))
 		}
 		s.Where(sql.Or(or...))
