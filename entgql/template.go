@@ -466,50 +466,58 @@ func orderFields(n *gen.Type) ([]*OrderTerm, error) {
 	edgeNamesWithThroughTables := make(map[string]interface{})
 	for _, e := range n.Edges {
 		name := strings.ToUpper(e.Name)
-		switch ant, err := annotation(e.Annotations); {
-		case err != nil:
+		ant, err := annotation(e.Annotations)
+		if err != nil {
 			return nil, err
-		case ant.Skip.Is(SkipOrderField), ant.OrderField == "":
-		case strings.HasSuffix(ant.OrderField, "_COUNT") &&
-			edgeNamesWithThroughTables[strings.TrimSuffix(ant.OrderField, "_COUNT")] != nil:
-			// skip the through table annotations, annotations are applied on the `edge.To` edge instead
-		case ant.OrderField == fmt.Sprintf("%s_COUNT", name):
-			// Validate that the edge has a count ordering.
-			if _, err := e.OrderCountName(); err != nil {
-				return nil, fmt.Errorf("entgql: invalid order field %s defined on edge %s.%s: %w", ant.OrderField, n.Name, e.Name, err)
-			}
-			terms = append(terms, &OrderTerm{
-				Owner: n,
-				GQL:   ant.OrderField,
-				Type:  n,
-				Edge:  e,
-				Count: true,
-			})
-		case strings.HasPrefix(ant.OrderField, name+"_"):
-			// Validate that the edge has an edge field ordering.
-			if _, err := e.OrderFieldName(); err != nil {
-				return nil, fmt.Errorf("entgql: invalid order field %s defined on edge %s.%s: %w", ant.OrderField, n.Name, e.Name, err)
-			}
-			ef := strings.TrimPrefix(ant.OrderField, name+"_")
-			idx := slices.IndexFunc(e.Type.Fields, func(f *gen.Field) bool {
-				ant, err := annotation(f.Annotations)
-				return err == nil && ant.OrderField == ef
-			})
-			if idx == -1 {
-				return nil, fmt.Errorf("entgql: order field %s defined on edge %s.%s was not found on its reference", ant.OrderField, n.Name, e.Name)
-			}
-			terms = append(terms, &OrderTerm{
-				Owner: n,
-				GQL:   ant.OrderField,
-				Edge:  e,
-				Type:  e.Type,
-				Field: e.Type.Fields[idx],
-			})
-		default:
-			return nil, fmt.Errorf("entgql: invalid order field defined on edge %s.%s", n.Name, e.Name)
 		}
-		if e.Through != nil {
-			edgeNamesWithThroughTables[name] = true
+		if ant.Skip.Is(SkipOrderField) || ant.OrderField == "" {
+			continue
+		}
+		orderFields := strings.Split(ant.OrderField, ",")
+		for _, orderField := range orderFields {
+			switch {
+			case ant.Skip.Is(SkipOrderField), orderField == "":
+			case strings.HasSuffix(orderField, "_COUNT") &&
+				edgeNamesWithThroughTables[strings.TrimSuffix(orderField, "_COUNT")] != nil:
+				// skip the through table annotations, annotations are applied on the `edge.To` edge instead
+			case orderField == fmt.Sprintf("%s_COUNT", name):
+				// Validate that the edge has a count ordering.
+				if _, err := e.OrderCountName(); err != nil {
+					return nil, fmt.Errorf("entgql: invalid order field %s defined on edge %s.%s: %w", orderField, n.Name, e.Name, err)
+				}
+				terms = append(terms, &OrderTerm{
+					Owner: n,
+					GQL:   orderField,
+					Type:  n,
+					Edge:  e,
+					Count: true,
+				})
+			case strings.HasPrefix(orderField, name+"_"):
+				// Validate that the edge has an edge field ordering.
+				if _, err := e.OrderFieldName(); err != nil {
+					return nil, fmt.Errorf("entgql: invalid order field %s defined on edge %s.%s: %w", orderField, n.Name, e.Name, err)
+				}
+				ef := strings.TrimPrefix(orderField, name+"_")
+				idx := slices.IndexFunc(e.Type.Fields, func(f *gen.Field) bool {
+					ant, err := annotation(f.Annotations)
+					return err == nil && ant.OrderField == ef
+				})
+				if idx == -1 {
+					return nil, fmt.Errorf("entgql: order field %s defined on edge %s.%s was not found on its reference", orderField, n.Name, e.Name)
+				}
+				terms = append(terms, &OrderTerm{
+					Owner: n,
+					GQL:   orderField,
+					Edge:  e,
+					Type:  e.Type,
+					Field: e.Type.Fields[idx],
+				})
+			default:
+				return nil, fmt.Errorf("entgql: invalid order field defined on edge %s.%s", n.Name, e.Name)
+			}
+			if e.Through != nil {
+				edgeNamesWithThroughTables[name] = true
+			}
 		}
 	}
 	return terms, nil
