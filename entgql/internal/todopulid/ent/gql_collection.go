@@ -59,15 +59,15 @@ func (bpq *BillProductQuery) collectField(ctx context.Context, oneNode bool, opC
 				selectedFields = append(selectedFields, billproduct.FieldName)
 				fieldSeen[billproduct.FieldName] = struct{}{}
 			}
-		case "sku":
-			if _, ok := fieldSeen[billproduct.FieldSku]; !ok {
-				selectedFields = append(selectedFields, billproduct.FieldSku)
-				fieldSeen[billproduct.FieldSku] = struct{}{}
-			}
 		case "quantity":
 			if _, ok := fieldSeen[billproduct.FieldQuantity]; !ok {
 				selectedFields = append(selectedFields, billproduct.FieldQuantity)
 				fieldSeen[billproduct.FieldQuantity] = struct{}{}
+			}
+		case "sku":
+			if _, ok := fieldSeen[billproduct.FieldSku]; !ok {
+				selectedFields = append(selectedFields, billproduct.FieldSku)
+				fieldSeen[billproduct.FieldSku] = struct{}{}
 			}
 		case "id":
 		case "__typename":
@@ -149,8 +149,8 @@ func (cq *CategoryQuery) collectField(ctx context.Context, oneNode bool, opCtx *
 			if query, err = pager.applyFilter(query); err != nil {
 				return err
 			}
-			ignoredEdges := !hasCollectedField(ctx, append(path, edgesField)...)
-			if hasCollectedField(ctx, append(path, totalCountField)...) || hasCollectedField(ctx, append(path, pageInfoField)...) {
+			ignoredEdges := !hasCollectedFieldFrom(field, opCtx, satisfies, edgesField)
+			if hasCollectedFieldFrom(field, opCtx, satisfies, totalCountField) || hasCollectedFieldFrom(field, opCtx, satisfies, pageInfoField) {
 				hasPagination := args.after != nil || args.first != nil || args.before != nil || args.last != nil
 				if hasPagination || ignoredEdges {
 					query := query.Clone()
@@ -202,8 +202,8 @@ func (cq *CategoryQuery) collectField(ctx context.Context, oneNode bool, opCtx *
 				return err
 			}
 			path = append(path, edgesField, nodeField)
-			if field := collectedField(ctx, path...); field != nil {
-				if err := query.collectField(ctx, false, opCtx, *field, path, mayAddCondition(satisfies, todoImplementors)...); err != nil {
+			if edgesNode := collectedFieldFrom(field, opCtx, satisfies, edgesField, nodeField); edgesNode != nil {
+				if err := query.collectField(ctx, false, opCtx, *edgesNode, path, mayAddCondition(satisfies, todoImplementors)...); err != nil {
 					return err
 				}
 			}
@@ -238,8 +238,8 @@ func (cq *CategoryQuery) collectField(ctx context.Context, oneNode bool, opCtx *
 			if query, err = pager.applyFilter(query); err != nil {
 				return err
 			}
-			ignoredEdges := !hasCollectedField(ctx, append(path, edgesField)...)
-			if hasCollectedField(ctx, append(path, totalCountField)...) || hasCollectedField(ctx, append(path, pageInfoField)...) {
+			ignoredEdges := !hasCollectedFieldFrom(field, opCtx, satisfies, edgesField)
+			if hasCollectedFieldFrom(field, opCtx, satisfies, totalCountField) || hasCollectedFieldFrom(field, opCtx, satisfies, pageInfoField) {
 				hasPagination := args.after != nil || args.first != nil || args.before != nil || args.last != nil
 				if hasPagination || ignoredEdges {
 					query := query.Clone()
@@ -295,8 +295,8 @@ func (cq *CategoryQuery) collectField(ctx context.Context, oneNode bool, opCtx *
 				return err
 			}
 			path = append(path, edgesField, nodeField)
-			if field := collectedField(ctx, path...); field != nil {
-				if err := query.collectField(ctx, false, opCtx, *field, path, mayAddCondition(satisfies, categoryImplementors)...); err != nil {
+			if edgesNode := collectedFieldFrom(field, opCtx, satisfies, edgesField, nodeField); edgesNode != nil {
+				if err := query.collectField(ctx, false, opCtx, *edgesNode, path, mayAddCondition(satisfies, categoryImplementors)...); err != nil {
 					return err
 				}
 			}
@@ -313,40 +313,40 @@ func (cq *CategoryQuery) collectField(ctx context.Context, oneNode bool, opCtx *
 			cq.WithNamedSubCategories(alias, func(wq *CategoryQuery) {
 				*wq = *query
 			})
-		case "text":
-			if _, ok := fieldSeen[category.FieldText]; !ok {
-				selectedFields = append(selectedFields, category.FieldText)
-				fieldSeen[category.FieldText] = struct{}{}
-			}
-		case "status":
-			if _, ok := fieldSeen[category.FieldStatus]; !ok {
-				selectedFields = append(selectedFields, category.FieldStatus)
-				fieldSeen[category.FieldStatus] = struct{}{}
-			}
 		case "config":
 			if _, ok := fieldSeen[category.FieldConfig]; !ok {
 				selectedFields = append(selectedFields, category.FieldConfig)
 				fieldSeen[category.FieldConfig] = struct{}{}
-			}
-		case "types":
-			if _, ok := fieldSeen[category.FieldTypes]; !ok {
-				selectedFields = append(selectedFields, category.FieldTypes)
-				fieldSeen[category.FieldTypes] = struct{}{}
-			}
-		case "duration":
-			if _, ok := fieldSeen[category.FieldDuration]; !ok {
-				selectedFields = append(selectedFields, category.FieldDuration)
-				fieldSeen[category.FieldDuration] = struct{}{}
 			}
 		case "count":
 			if _, ok := fieldSeen[category.FieldCount]; !ok {
 				selectedFields = append(selectedFields, category.FieldCount)
 				fieldSeen[category.FieldCount] = struct{}{}
 			}
+		case "duration":
+			if _, ok := fieldSeen[category.FieldDuration]; !ok {
+				selectedFields = append(selectedFields, category.FieldDuration)
+				fieldSeen[category.FieldDuration] = struct{}{}
+			}
+		case "status":
+			if _, ok := fieldSeen[category.FieldStatus]; !ok {
+				selectedFields = append(selectedFields, category.FieldStatus)
+				fieldSeen[category.FieldStatus] = struct{}{}
+			}
 		case "strings":
 			if _, ok := fieldSeen[category.FieldStrings]; !ok {
 				selectedFields = append(selectedFields, category.FieldStrings)
 				fieldSeen[category.FieldStrings] = struct{}{}
+			}
+		case "text":
+			if _, ok := fieldSeen[category.FieldText]; !ok {
+				selectedFields = append(selectedFields, category.FieldText)
+				fieldSeen[category.FieldText] = struct{}{}
+			}
+		case "types":
+			if _, ok := fieldSeen[category.FieldTypes]; !ok {
+				selectedFields = append(selectedFields, category.FieldTypes)
+				fieldSeen[category.FieldTypes] = struct{}{}
 			}
 		case "id":
 		case "__typename":
@@ -473,15 +473,15 @@ func (fq *FriendshipQuery) collectField(ctx context.Context, oneNode bool, opCtx
 				selectedFields = append(selectedFields, friendship.FieldCreatedAt)
 				fieldSeen[friendship.FieldCreatedAt] = struct{}{}
 			}
-		case "userID":
-			if _, ok := fieldSeen[friendship.FieldUserID]; !ok {
-				selectedFields = append(selectedFields, friendship.FieldUserID)
-				fieldSeen[friendship.FieldUserID] = struct{}{}
-			}
 		case "friendID":
 			if _, ok := fieldSeen[friendship.FieldFriendID]; !ok {
 				selectedFields = append(selectedFields, friendship.FieldFriendID)
 				fieldSeen[friendship.FieldFriendID] = struct{}{}
+			}
+		case "userID":
+			if _, ok := fieldSeen[friendship.FieldUserID]; !ok {
+				selectedFields = append(selectedFields, friendship.FieldUserID)
+				fieldSeen[friendship.FieldUserID] = struct{}{}
 			}
 		case "id":
 		case "__typename":
@@ -563,8 +563,8 @@ func (gq *GroupQuery) collectField(ctx context.Context, oneNode bool, opCtx *gra
 			if query, err = pager.applyFilter(query); err != nil {
 				return err
 			}
-			ignoredEdges := !hasCollectedField(ctx, append(path, edgesField)...)
-			if hasCollectedField(ctx, append(path, totalCountField)...) || hasCollectedField(ctx, append(path, pageInfoField)...) {
+			ignoredEdges := !hasCollectedFieldFrom(field, opCtx, satisfies, edgesField)
+			if hasCollectedFieldFrom(field, opCtx, satisfies, totalCountField) || hasCollectedFieldFrom(field, opCtx, satisfies, pageInfoField) {
 				hasPagination := args.after != nil || args.first != nil || args.before != nil || args.last != nil
 				if hasPagination || ignoredEdges {
 					query := query.Clone()
@@ -620,8 +620,8 @@ func (gq *GroupQuery) collectField(ctx context.Context, oneNode bool, opCtx *gra
 				return err
 			}
 			path = append(path, edgesField, nodeField)
-			if field := collectedField(ctx, path...); field != nil {
-				if err := query.collectField(ctx, false, opCtx, *field, path, mayAddCondition(satisfies, userImplementors)...); err != nil {
+			if edgesNode := collectedFieldFrom(field, opCtx, satisfies, edgesField, nodeField); edgesNode != nil {
+				if err := query.collectField(ctx, false, opCtx, *edgesNode, path, mayAddCondition(satisfies, userImplementors)...); err != nil {
 					return err
 				}
 			}
@@ -734,8 +734,8 @@ func (tq *TodoQuery) collectField(ctx context.Context, oneNode bool, opCtx *grap
 			if query, err = pager.applyFilter(query); err != nil {
 				return err
 			}
-			ignoredEdges := !hasCollectedField(ctx, append(path, edgesField)...)
-			if hasCollectedField(ctx, append(path, totalCountField)...) || hasCollectedField(ctx, append(path, pageInfoField)...) {
+			ignoredEdges := !hasCollectedFieldFrom(field, opCtx, satisfies, edgesField)
+			if hasCollectedFieldFrom(field, opCtx, satisfies, totalCountField) || hasCollectedFieldFrom(field, opCtx, satisfies, pageInfoField) {
 				hasPagination := args.after != nil || args.first != nil || args.before != nil || args.last != nil
 				if hasPagination || ignoredEdges {
 					query := query.Clone()
@@ -787,8 +787,8 @@ func (tq *TodoQuery) collectField(ctx context.Context, oneNode bool, opCtx *grap
 				return err
 			}
 			path = append(path, edgesField, nodeField)
-			if field := collectedField(ctx, path...); field != nil {
-				if err := query.collectField(ctx, false, opCtx, *field, path, mayAddCondition(satisfies, todoImplementors)...); err != nil {
+			if edgesNode := collectedFieldFrom(field, opCtx, satisfies, edgesField, nodeField); edgesNode != nil {
+				if err := query.collectField(ctx, false, opCtx, *edgesNode, path, mayAddCondition(satisfies, todoImplementors)...); err != nil {
 					return err
 				}
 			}
@@ -820,35 +820,15 @@ func (tq *TodoQuery) collectField(ctx context.Context, oneNode bool, opCtx *grap
 				selectedFields = append(selectedFields, todo.FieldCategoryID)
 				fieldSeen[todo.FieldCategoryID] = struct{}{}
 			}
+		case "categoryID":
+			if _, ok := fieldSeen[todo.FieldCategoryID]; !ok {
+				selectedFields = append(selectedFields, todo.FieldCategoryID)
+				fieldSeen[todo.FieldCategoryID] = struct{}{}
+			}
 		case "createdAt":
 			if _, ok := fieldSeen[todo.FieldCreatedAt]; !ok {
 				selectedFields = append(selectedFields, todo.FieldCreatedAt)
 				fieldSeen[todo.FieldCreatedAt] = struct{}{}
-			}
-		case "status":
-			if _, ok := fieldSeen[todo.FieldStatus]; !ok {
-				selectedFields = append(selectedFields, todo.FieldStatus)
-				fieldSeen[todo.FieldStatus] = struct{}{}
-			}
-		case "priorityOrder":
-			if _, ok := fieldSeen[todo.FieldPriority]; !ok {
-				selectedFields = append(selectedFields, todo.FieldPriority)
-				fieldSeen[todo.FieldPriority] = struct{}{}
-			}
-		case "text":
-			if _, ok := fieldSeen[todo.FieldText]; !ok {
-				selectedFields = append(selectedFields, todo.FieldText)
-				fieldSeen[todo.FieldText] = struct{}{}
-			}
-		case "name", "uppercaseName":
-			if _, ok := fieldSeen[todo.FieldName]; !ok {
-				selectedFields = append(selectedFields, todo.FieldName)
-				fieldSeen[todo.FieldName] = struct{}{}
-			}
-		case "init":
-			if _, ok := fieldSeen[todo.FieldInit]; !ok {
-				selectedFields = append(selectedFields, todo.FieldInit)
-				fieldSeen[todo.FieldInit] = struct{}{}
 			}
 		case "custom":
 			if _, ok := fieldSeen[todo.FieldCustom]; !ok {
@@ -860,15 +840,35 @@ func (tq *TodoQuery) collectField(ctx context.Context, oneNode bool, opCtx *grap
 				selectedFields = append(selectedFields, todo.FieldCustomp)
 				fieldSeen[todo.FieldCustomp] = struct{}{}
 			}
+		case "init":
+			if _, ok := fieldSeen[todo.FieldInit]; !ok {
+				selectedFields = append(selectedFields, todo.FieldInit)
+				fieldSeen[todo.FieldInit] = struct{}{}
+			}
+		case "name", "uppercaseName":
+			if _, ok := fieldSeen[todo.FieldName]; !ok {
+				selectedFields = append(selectedFields, todo.FieldName)
+				fieldSeen[todo.FieldName] = struct{}{}
+			}
+		case "priorityOrder":
+			if _, ok := fieldSeen[todo.FieldPriority]; !ok {
+				selectedFields = append(selectedFields, todo.FieldPriority)
+				fieldSeen[todo.FieldPriority] = struct{}{}
+			}
+		case "status":
+			if _, ok := fieldSeen[todo.FieldStatus]; !ok {
+				selectedFields = append(selectedFields, todo.FieldStatus)
+				fieldSeen[todo.FieldStatus] = struct{}{}
+			}
+		case "text":
+			if _, ok := fieldSeen[todo.FieldText]; !ok {
+				selectedFields = append(selectedFields, todo.FieldText)
+				fieldSeen[todo.FieldText] = struct{}{}
+			}
 		case "value":
 			if _, ok := fieldSeen[todo.FieldValue]; !ok {
 				selectedFields = append(selectedFields, todo.FieldValue)
 				fieldSeen[todo.FieldValue] = struct{}{}
-			}
-		case "categoryID":
-			if _, ok := fieldSeen[todo.FieldCategoryID]; !ok {
-				selectedFields = append(selectedFields, todo.FieldCategoryID)
-				fieldSeen[todo.FieldCategoryID] = struct{}{}
 			}
 		case "id":
 		case "__typename":
@@ -978,8 +978,8 @@ func (uq *UserQuery) collectField(ctx context.Context, oneNode bool, opCtx *grap
 			if query, err = pager.applyFilter(query); err != nil {
 				return err
 			}
-			ignoredEdges := !hasCollectedField(ctx, append(path, edgesField)...)
-			if hasCollectedField(ctx, append(path, totalCountField)...) || hasCollectedField(ctx, append(path, pageInfoField)...) {
+			ignoredEdges := !hasCollectedFieldFrom(field, opCtx, satisfies, edgesField)
+			if hasCollectedFieldFrom(field, opCtx, satisfies, totalCountField) || hasCollectedFieldFrom(field, opCtx, satisfies, pageInfoField) {
 				hasPagination := args.after != nil || args.first != nil || args.before != nil || args.last != nil
 				if hasPagination || ignoredEdges {
 					query := query.Clone()
@@ -1035,8 +1035,8 @@ func (uq *UserQuery) collectField(ctx context.Context, oneNode bool, opCtx *grap
 				return err
 			}
 			path = append(path, edgesField, nodeField)
-			if field := collectedField(ctx, path...); field != nil {
-				if err := query.collectField(ctx, false, opCtx, *field, path, mayAddCondition(satisfies, groupImplementors)...); err != nil {
+			if edgesNode := collectedFieldFrom(field, opCtx, satisfies, edgesField, nodeField); edgesNode != nil {
+				if err := query.collectField(ctx, false, opCtx, *edgesNode, path, mayAddCondition(satisfies, groupImplementors)...); err != nil {
 					return err
 				}
 			}
@@ -1079,25 +1079,44 @@ func (uq *UserQuery) collectField(ctx context.Context, oneNode bool, opCtx *grap
 			uq.WithNamedFriendships(alias, func(wq *FriendshipQuery) {
 				*wq = *query
 			})
+		case "firstName":
+			if _, ok := fieldSeen[user.FieldFirstName]; !ok {
+				selectedFields = append(selectedFields, user.FieldFirstName)
+				fieldSeen[user.FieldFirstName] = struct{}{}
+			}
+		case "fullName":
+			if _, ok := fieldSeen[user.FieldFirstName]; !ok {
+				selectedFields = append(selectedFields, user.FieldFirstName)
+				fieldSeen[user.FieldFirstName] = struct{}{}
+			}
+			if _, ok := fieldSeen[user.FieldLastName]; !ok {
+				selectedFields = append(selectedFields, user.FieldLastName)
+				fieldSeen[user.FieldLastName] = struct{}{}
+			}
+		case "lastName":
+			if _, ok := fieldSeen[user.FieldLastName]; !ok {
+				selectedFields = append(selectedFields, user.FieldLastName)
+				fieldSeen[user.FieldLastName] = struct{}{}
+			}
+		case "metadata":
+			if _, ok := fieldSeen[user.FieldMetadata]; !ok {
+				selectedFields = append(selectedFields, user.FieldMetadata)
+				fieldSeen[user.FieldMetadata] = struct{}{}
+			}
 		case "name":
 			if _, ok := fieldSeen[user.FieldName]; !ok {
 				selectedFields = append(selectedFields, user.FieldName)
 				fieldSeen[user.FieldName] = struct{}{}
-			}
-		case "username":
-			if _, ok := fieldSeen[user.FieldUsername]; !ok {
-				selectedFields = append(selectedFields, user.FieldUsername)
-				fieldSeen[user.FieldUsername] = struct{}{}
 			}
 		case "requiredMetadata":
 			if _, ok := fieldSeen[user.FieldRequiredMetadata]; !ok {
 				selectedFields = append(selectedFields, user.FieldRequiredMetadata)
 				fieldSeen[user.FieldRequiredMetadata] = struct{}{}
 			}
-		case "metadata":
-			if _, ok := fieldSeen[user.FieldMetadata]; !ok {
-				selectedFields = append(selectedFields, user.FieldMetadata)
-				fieldSeen[user.FieldMetadata] = struct{}{}
+		case "username":
+			if _, ok := fieldSeen[user.FieldUsername]; !ok {
+				selectedFields = append(selectedFields, user.FieldUsername)
+				fieldSeen[user.FieldUsername] = struct{}{}
 			}
 		case "id":
 		case "__typename":

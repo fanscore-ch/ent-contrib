@@ -2982,6 +2982,53 @@ func TestFieldSelection(t *testing.T) {
 	require.Equal(t, "HELLO", *rsp5.Todos.Edges[0].Node.UppercaseName)
 }
 
+func TestCollectedForMultipleFields(t *testing.T) {
+	ctx := context.Background()
+	drv, err := sql.Open(dialect.SQLite, fmt.Sprintf("file:%s?mode=memory&cache=shared&_fk=1", t.Name()))
+	require.NoError(t, err)
+	rec := &queryRecorder{Driver: drv}
+	ec := enttest.NewClient(t,
+		enttest.WithOptions(ent.Driver(rec)),
+		enttest.WithMigrateOptions(migrate.WithGlobalUniqueID(true)),
+	)
+	ec.User.Create().
+		SetFirstName("John").
+		SetLastName("Doe").
+		SetRequiredMetadata(map[string]any{}).
+		SaveX(ctx)
+
+	var (
+		// language=GraphQL
+		query = `query {
+			users {
+				edges {
+					node {
+						fullName
+					}
+				}
+			}
+		}`
+		rsp struct {
+			Users struct {
+				Edges []struct {
+					Node struct {
+						FullName *string
+					}
+				}
+			}
+		}
+	)
+	rec.reset()
+	client.New(handler.NewDefaultServer(gen.NewSchema(ec))).
+		MustPost(query, &rsp)
+	require.Equal(t, []string{
+		"SELECT `users`.`id`, `users`.`first_name`, `users`.`last_name` FROM `users` ORDER BY `users`.`id`",
+	}, rec.queries)
+	require.Len(t, rsp.Users.Edges, 1)
+	require.NotNil(t, rsp.Users.Edges[0].Node.FullName)
+	require.Equal(t, "John Doe", *rsp.Users.Edges[0].Node.FullName)
+}
+
 func TestOrderByEdgeCount(t *testing.T) {
 	ctx := context.Background()
 	ec := enttest.Open(
@@ -3447,6 +3494,123 @@ func TestSatisfiesNodeFragments(t *testing.T) {
 	gqlc.MustPost(query1, &rsp1, client.Var("id", g1.ID))
 	require.Equal(t, strconv.Itoa(g1.ID), rsp1.Group.ID)
 	require.Equal(t, "g1", rsp1.Group.Name)
+}
+
+func TestUnionConnectionEagerLoadFragmentOrder(t *testing.T) {
+	ctx := context.Background()
+	drv, err := sql.Open(dialect.SQLite, fmt.Sprintf("file:%s?mode=memory&cache=shared&_fk=1", t.Name()))
+	require.NoError(t, err)
+	rec := &queryRecorder{Driver: drv}
+	ec := enttest.NewClient(t,
+		enttest.WithOptions(ent.Driver(rec)),
+		enttest.WithMigrateOptions(migrate.WithGlobalUniqueID(true)),
+	)
+	gqlc := client.New(handler.NewDefaultServer(gen.NewSchema(ec)))
+
+	dataQueries := func(queries []string) []string {
+		out := make([]string, 0, len(queries))
+		for _, q := range queries {
+			if strings.Contains(q, "ent_types") {
+				continue
+			}
+			out = append(out, q)
+		}
+		return out
+	}
+
+	cat := ec.Category.Create().SetText("cat").SetStatus(category.StatusEnabled).SaveX(ctx)
+	const todoCount = 5
+	for i := 0; i < todoCount; i++ {
+		ec.Todo.Create().
+			SetText(fmt.Sprintf("t%d", i)).
+			SetStatus(todo.StatusInProgress).
+			SetCategory(cat).
+			SaveX(ctx)
+	}
+
+	run := func(projectFirst bool) ([]string, []string) {
+		var fragments string
+		if projectFirst {
+			fragments = `... on Project {
+				todos(first: 10) {
+					edges {
+						node {
+							text
+						}
+					}
+				}
+			}
+			... on Category {
+				todos(first: 10) {
+					edges {
+						node {
+							category {
+								text
+							}
+						}
+					}
+				}
+			}`
+		} else {
+			fragments = `... on Category {
+				todos(first: 10) {
+					edges {
+						node {
+							category {
+								text
+							}
+						}
+					}
+				}
+			}
+			... on Project {
+				todos(first: 10) {
+					edges {
+						node {
+							text
+						}
+					}
+				}
+			}`
+		}
+		query := fmt.Sprintf(`query Node($id: ID!) {
+			category: node(id: $id) {
+				%s
+			}
+		}`, fragments)
+		var rsp struct {
+			Category struct {
+				Todos struct {
+					Edges []struct {
+						Node struct {
+							Category struct {
+								Text string
+							}
+						}
+					}
+				}
+			}
+		}
+		rec.reset()
+		gqlc.MustPost(query, &rsp, client.Var("id", cat.ID))
+		texts := make([]string, len(rsp.Category.Todos.Edges))
+		for i, e := range rsp.Category.Todos.Edges {
+			texts[i] = e.Node.Category.Text
+		}
+		return dataQueries(rec.queries), texts
+	}
+
+	const wantQueries = 3 // category node + batched todos + batched category edges.
+
+	queries1, texts1 := run(true)
+	queries2, texts2 := run(false)
+	require.Equal(t, wantQueries, len(queries1), "expected eager-load queries, got: %v", queries1)
+	require.Equal(t, wantQueries, len(queries2), "expected eager-load queries, got: %v", queries2)
+	require.Equal(t, queries1, queries2, "queries must not depend on fragment order")
+	require.Equal(t, []string{"cat", "cat", "cat", "cat", "cat"}, texts1)
+	require.Equal(t, texts1, texts2)
+	require.Contains(t, queries1[1], "category_id` IN")
+	require.Contains(t, queries1[2], "categories`.`id` IN")
 }
 
 func TestPaginate(t *testing.T) {

@@ -92,6 +92,9 @@ func (r *Resolver) Query() QueryResolver { return &queryResolver{r} }
 // Todo returns TodoResolver implementation.
 func (r *Resolver) Todo() TodoResolver { return &todoResolver{r} }
 
+// User returns UserResolver implementation.
+func (r *Resolver) User() UserResolver { return &userResolver{r} }
+
 // CreateCategoryInput returns CreateCategoryInputResolver implementation.
 func (r *Resolver) CreateCategoryInput() CreateCategoryInputResolver {
 	return &createCategoryInputResolver{r}
@@ -103,5 +106,6 @@ func (r *Resolver) TodoWhereInput() TodoWhereInputResolver { return &todoWhereIn
 type categoryResolver struct{ *Resolver }
 type queryResolver struct{ *Resolver }
 type todoResolver struct{ *Resolver }
+type userResolver struct{ *Resolver }
 type createCategoryInputResolver struct{ *Resolver }
 type todoWhereInputResolver struct{ *Resolver }

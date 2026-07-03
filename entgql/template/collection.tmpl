@@ -80,8 +80,8 @@ func ({{ $receiver }} *{{ $query }}) collectField(ctx context.Context, oneNode b
 							if query, err = pager.applyFilter(query); err != nil {
 								return err
 							}
-							ignoredEdges := !hasCollectedField(ctx, append(path, edgesField)...)
-							if hasCollectedField(ctx, append(path, totalCountField)...) || hasCollectedField(ctx, append(path, pageInfoField)...) {
+							ignoredEdges := !hasCollectedFieldFrom(field, opCtx, satisfies, edgesField)
+							if hasCollectedFieldFrom(field, opCtx, satisfies, totalCountField) || hasCollectedFieldFrom(field, opCtx, satisfies, pageInfoField) {
 								{{- /* Only add loadTotal query when needs */}}
 								hasPagination := args.after != nil || args.first != nil || args.before != nil || args.last != nil
 								if hasPagination || ignoredEdges {
@@ -110,8 +110,8 @@ func ({{ $receiver }} *{{ $query }}) collectField(ctx context.Context, oneNode b
 								return err
 							}
 							path = append(path, edgesField, nodeField)
-							if field := collectedField(ctx, path...); field != nil {
-								if err := query.collectField(ctx, {{ $oneNode }}, opCtx, *field, path, mayAddCondition(satisfies, {{ nodeImplementorsVar $e.Type }})...); err != nil {
+							if edgesNode := collectedFieldFrom(field, opCtx, satisfies, edgesField, nodeField); edgesNode != nil {
+								if err := query.collectField(ctx, {{ $oneNode }}, opCtx, *edgesNode, path, mayAddCondition(satisfies, {{ nodeImplementorsVar $e.Type }})...); err != nil {
 									return err
 								}
 							}
@@ -150,20 +150,14 @@ func ({{ $receiver }} *{{ $query }}) collectField(ctx context.Context, oneNode b
 							}
 						{{- end }}
 				{{- end }}
-				{{- range $f := $fields }}
-					{{- $mapping := fieldMapping $f }}
-					{{- range fieldCollectedFor $f }}
-						{{- if eq (indexOf $mapping .) -1 }}
-							{{- $mapping = append $mapping . }}
+				{{- range $c := fieldCollectorCases $fields }}
+					case {{ range $i, $m := $c.Mapping }}{{ if $i }}, {{ end }}"{{ $m }}"{{ end }}:
+						{{- range $f := $c.Fields }}
+						if _, ok := fieldSeen[{{ $node.Package }}.{{ $f.Constant }}]; !ok {
+							selectedFields = append(selectedFields, {{ $node.Package }}.{{ $f.Constant }})
+							fieldSeen[{{ $node.Package }}.{{ $f.Constant }}] = struct{}{}
+						}
 						{{- end }}
-					{{- end }}
-					{{- with $mapping }}
-						case {{ range $i, $m := . }}{{ if $i }}, {{ end }}"{{ $m }}"{{ end }}:
-							if _, ok := fieldSeen[{{ $node.Package }}.{{ $f.Constant }}]; !ok {
-								selectedFields = append(selectedFields, {{ $node.Package }}.{{ $f.Constant }})
-								fieldSeen[{{ $node.Package }}.{{ $f.Constant }}] = struct{}{}
-							}
-					{{- end }}
 				{{- end }}
 				{{- if $fields }}
 					{{- if $node.HasOneFieldID -}}
@@ -367,6 +361,13 @@ Cond:
 			}
 			query.Where(func(s *sql.Selector) {
 				joinT := sql.Table({{ $.Package }}.{{ $e.TableConstant }})
+				{{- with $tmpls := matchTemplate "dialect/sql/query/eagerloading/join/*" }}
+					{{- range $tmpl := $tmpls }}
+						{{- with extend $ "Edge" $e "Builder" (print $.Name "Query") "Receiver" $receiver }}
+							{{- xtemplate $tmpl . }}
+						{{- end }}
+					{{- end }}
+				{{- end }}
 				s.Join(joinT).On(s.C({{ $edgeid }}), joinT.C({{ $.Package }}.{{ $e.PKConstant }}[{{ $fk1idx }}]))
 				s.Where(sql.InValues(joinT.C({{ $.Package }}.{{ $e.PKConstant }}[{{ $fk2idx }}]), ids...))
 				s.Select(joinT.C({{ $nodeid }}), sql.Count("*"))
