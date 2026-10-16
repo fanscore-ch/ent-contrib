@@ -38,6 +38,13 @@ func ({{ $receiver }} *{{ $query }}) CollectFields(ctx context.Context, satisfie
 func ({{ $receiver }} *{{ $query }}) collectField(ctx context.Context, oneNode bool, opCtx *graphql.OperationContext, collected graphql.CollectedField, path []string, satisfies ...string) error {
 	path = append([]string(nil), path...)
 	{{- $fields := filterFields $node.Fields (skipMode "type") }}
+	{{- $collectID := false }}
+	{{- if $node.HasOneFieldID }}
+		{{- if fieldCollectedFor $node.ID }}
+			{{- $fields = append $fields $node.ID }}
+			{{- $collectID = true }}
+		{{- end }}
+	{{- end }}
 	{{- $collects := fieldCollections (filterEdges $node.Edges (skipMode "type")) }}
 	{{- $ifcCollects := interfaceFieldCollections (filterEdges $node.Edges (skipMode "type")) }}
 	{{- if or $collects $ifcCollects $fields }}
@@ -199,18 +206,20 @@ func ({{ $receiver }} *{{ $query }}) collectField(ctx context.Context, oneNode b
 				{{- range $c := fieldCollectorCases $fields }}
 					case {{ range $i, $m := $c.Mapping }}{{ if $i }}, {{ end }}"{{ $m }}"{{ end }}:
 						{{- range $f := $c.Fields }}
+						{{- if not (and $node.HasOneFieldID (eq $f.Name $node.ID.Name)) }}
 						if _, ok := fieldSeen[{{ $node.Package }}.{{ $f.Constant }}]; !ok {
 							selectedFields = append(selectedFields, {{ $node.Package }}.{{ $f.Constant }})
 							fieldSeen[{{ $node.Package }}.{{ $f.Constant }}] = struct{}{}
 						}
 						{{- end }}
+						{{- end }}
 				{{- end }}
 				{{- if $fields }}
-					{{- if $node.HasOneFieldID -}}
+					{{- if and $node.HasOneFieldID (not $collectID) -}}
 						{{- with fieldMapping $node.ID }}
 						case {{ range $i, $m := . }}{{ if $i }}, {{ end }}"{{ $m }}"{{ end }}:
 						{{- end }}
-					{{- end -}}
+					{{- end }}
 				case "__typename":
 				default:
 					unknownSeen = true
